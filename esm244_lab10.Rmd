@@ -1,0 +1,110 @@
+---
+title: "ESM 244 - Lab 10"
+author: "Karina Johnston"
+date: "3/10/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE, warning = FALSE, message = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+library(tidyverse)
+library(rvest)
+library(tidytext)
+library(purrr)
+
+```
+
+### Quick and dirty webscrape
+
+```{r}
+panic_lyrics <- read_html("http://www.songlyrics.com/panic!-at-the-disco/i-write-sins-not-tragedies-lyrics/") %>% 
+  html_nodes("#songLyricsDiv") %>% 
+  html_text() %>% 
+  str_replace_all("\n", " ") %>% 
+  str_remove_all(pattern = "[[:punct:]]") %>% 
+  str_to_lower() %>% 
+  str_split(" ") %>% 
+  as.data.frame()
+
+colnames(panic_lyrics)[1] <- "word"
+
+panic_clean <- panic_lyrics %>% 
+  anti_join(stop_words, by = "word")
+
+```
+
+### Purrr
+
+```{r}
+# load our data
+
+load(here::here("data", "panic_songs.Rdata"))
+
+```
+
+We want purrr to take the song information and extract the lyrics from the website.
+
+```{r}
+# create a function
+
+get_lyrics <- function(song, album, artist, year){
+  
+  base1 <- c("https://songlyrics.com/")
+  
+  base2 <- c("-lyrics")
+  
+  artist_url <- str_replace_all(artist, pattern = "(?!\\!)[[:punct:]]",
+                                replacement = " ") %>% 
+    str_replace_all(pattern = " ", "-") %>% 
+    str_to_lower() %>% 
+    str_squish()
+  
+  song_url <- str_remove_all(song, pattern = "(?!\\[!'])[[:punct:]]") %>% 
+    str_replace_all(pattern = "'", replacement = " ") %>% 
+    str_replace_all(pattern = " ", "-") %>% 
+    str_to_lower() %>% 
+    str_squish()
+  
+  url <- paste(base1, artist_url, "/", song_url, base2, sep = "")
+  
+  extract <- read_html(url) %>% 
+      html_nodes("#songLyricsDiv") %>% 
+      html_text() %>% 
+      str_replace_all("\n", " ") %>% 
+      str_remove_all(pattern = "[[:punct:]]") %>% 
+      str_to_lower() %>% 
+      str_split(" ") %>% 
+      as.data.frame() %>% 
+      mutate(song = song, artist = artist, album = album, year = year)
+    
+  colnames(extract)[1] <- "word"
+  
+  extract_clean <- extract %>% 
+    anti_join(stop_words, by = "word")
+  
+  return(extract_clean)
+}
+
+```
+
+
+```{r}
+# safely and possibly
+
+safe_get_ly <- safely(get_lyrics) # this will run it in a safe environment
+
+# function in purrr - `pmap`
+song_lyrics <- pmap(patd_df, safe_get_ly) %>% 
+  transpose()
+
+any_error <- compact(song_lyrics$error)
+
+# get rid of null observations to make a more condensed dataframe or list
+lyrics <- compact(song_lyrics$result) %>% 
+  as_tibble_col(column_name = "word") %>% 
+  unnest()
+
+```
+
+
